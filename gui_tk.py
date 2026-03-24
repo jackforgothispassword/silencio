@@ -18,17 +18,23 @@ DEFAULTS = {
     "crossfade_frames": "0",
 }
 
+import json
+
+PREFS_PATH = Path.home() / ".openclaw" / "workspace" / "silence_cutter" / "prefs.json"
+
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Silence Cutter → FCPXML for Final Cut Pro")
-        self.geometry("560x320")
+        self.geometry("560x340")
         self.resizable(False, False)
 
         self.file_var = tk.StringVar()
         self.vars = {k: tk.StringVar(value=v) for k, v in DEFAULTS.items()}
         self.output_var = tk.StringVar(value="")
+        self.outdir_var = tk.StringVar(value="")
 
+        self._load_prefs()
         self._build()
 
     def _build(self):
@@ -60,7 +66,6 @@ class App(tk.Tk):
         # Output folder selector
         outdir = tk.Frame(self)
         outdir.pack(fill="x", padx=pad, pady=(4, 4))
-        self.outdir_var = tk.StringVar(value="")
         tk.Button(outdir, text="Select Output Folder…", command=self.choose_output_dir, width=18).pack(side="left")
         tk.Label(outdir, textvariable=self.outdir_var, anchor="w", fg="#444").pack(side="left", padx=8)
 
@@ -69,6 +74,7 @@ class App(tk.Tk):
         actions.pack(fill="x", padx=pad, pady=(8, 4))
         tk.Button(actions, text="Generate FCPXML", command=self.run_cutter, width=18).pack(side="left")
         tk.Button(actions, text="Reveal Output in Finder", command=self.reveal_output).pack(side="left", padx=8)
+        tk.Button(actions, text="Open in Final Cut", command=self.open_in_fcp).pack(side="left")
 
         # Output label
         out = tk.Frame(self)
@@ -81,11 +87,13 @@ class App(tk.Tk):
                                           filetypes=[("Video", ".mp4 .mov .m4v .mxf .avi .mkv"), ("All files", "*.*")])
         if path:
             self.file_var.set(path)
+            self._save_prefs()
 
     def choose_output_dir(self):
         path = filedialog.askdirectory(title="Choose output folder")
         if path:
             self.outdir_var.set(path)
+            self._save_prefs()
 
     def run_cutter(self):
         ipath = self.file_var.get().strip()
@@ -109,6 +117,7 @@ class App(tk.Tk):
             cmd.extend(["--output-dir", outdir])
         try:
             p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            self._save_prefs()
         except Exception as e:
             messagebox.showerror("Error running cutter", str(e))
             return
@@ -136,6 +145,42 @@ class App(tk.Tk):
             messagebox.showerror("No output", "Run the cutter first, or the output path is missing.")
             return
         subprocess.run(["open", "-R", out_path])
+
+    def open_in_fcp(self):
+        out_path = self.output_var.get().strip()
+        if not out_path or not os.path.exists(out_path):
+            messagebox.showerror("No output", "Run the cutter first, or the output path is missing.")
+            return
+        try:
+            subprocess.run(["open", "-a", "Final Cut Pro", out_path])
+        except Exception as e:
+            messagebox.showerror("Could not open Final Cut Pro", str(e))
+
+    # --- prefs helpers ---
+    def _load_prefs(self):
+        try:
+            if PREFS_PATH.exists():
+                data = json.load(open(PREFS_PATH, "r"))
+                self.file_var.set(data.get("last_video", ""))
+                self.outdir_var.set(data.get("last_outdir", ""))
+                for k in self.vars:
+                    if k in data:
+                        self.vars[k].set(str(data[k]))
+        except Exception:
+            pass
+
+    def _save_prefs(self):
+        try:
+            PREFS_PATH.parent.mkdir(parents=True, exist_ok=True)
+            data = {k: v.get().strip() for k, v in self.vars.items()}
+            data.update({
+                "last_video": self.file_var.get().strip(),
+                "last_outdir": self.outdir_var.get().strip(),
+            })
+            with open(PREFS_PATH, "w") as f:
+                json.dump(data, f, indent=2)
+        except Exception:
+            pass
 
 if __name__ == "__main__":
     app = App()

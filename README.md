@@ -17,10 +17,11 @@ Quick start (CLI)
    - You’ll get an Event named “Silence Cutter” with a Project “your_clip (Silence Cut)”
 
 Quick start (GUI)
-1) Launch the UI:
-   - python3 gui_tk.py
+1) Launch the UI (script) or use the App:
+   - Script: python3 gui_tk.py
+   - App: ~/.openclaw/workspace/silence_cutter/dist/Silence Cutter.app (drag to /Applications)
 2) Click “Select Video…” to choose your clip, adjust settings, optionally click “Select Output Folder…”
-3) Click “Generate FCPXML” → then “Reveal Output in Finder” and import the XML into FCP (File → Import → XML…)
+3) Click “Generate FCPXML” → then “Reveal Output in Finder” or “Open in Final Cut” (or File → Import → XML… in FCP)
 
 Tunable parameters
 - --threshold: Silence threshold in dB (default: -35). Raise (e.g., -30) if room tone is getting cut; lower (e.g., -40) if silences aren’t found.
