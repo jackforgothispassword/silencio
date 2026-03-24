@@ -227,30 +227,26 @@ def generate_fcpxml(
     project_name: str,
     crossfade_frames: int = 0,
 ) -> str:
-    # Choose a timescale for timeline math
-    # Use 24000 for sub-frame precision, or fps_num if you prefer frame-accurate only.
-    # We'll use 24000 and still snap to frames above.
+    # Choose a timescale for timeline math (ticks per second)
     timescale = 24000
 
     fps_num, fps_den = rational_for_fps(media.fps_num, media.fps_den)
     frame_duration = f"{fps_den}/{fps_num}s"  # e.g., 1001/24000s for 23.976
 
-    # Asset URL must be file:// absolute path with URL encoding for spaces
+    # Asset URL via media-rep (FCPXML 1.10+ expects media-rep child, not src on asset)
     abs_path = str(Path(input_path).resolve())
     url = "file://" + abs_path.replace(" ", "%20")
 
     spine_items = []
     offset_ticks = 0
-    cf_ticks = crossfade_frames * int(round(timescale * (media.fps_den / media.fps_num)))
 
     for seg in segments:
         start = seg.start
         dur = seg.end - seg.start
-        # Build XML clip item
         start_s = to_fcpx_time(start, timescale)
         dur_s = to_fcpx_time(dur, timescale)
-        off_s = to_fcpx_time(offset_ticks / timescale, timescale)
-        # In FCPXML, use asset-clip with start/duration; offset accumulates
+        offset_seconds = offset_ticks / timescale
+        off_s = to_fcpx_time(offset_seconds, timescale)
         spine_items.append(f"""
         <asset-clip name="{shlex.quote(os.path.basename(input_path))}" ref="r2" start="{start_s}" duration="{dur_s}" offset="{off_s}"/>
         """.strip())
@@ -258,16 +254,21 @@ def generate_fcpxml(
 
     spine_xml = "\n".join(spine_items)
 
-    xml = f"""<?xml version="1.0" encoding="UTF-8"?>
-<fcpxml version="1.10">
+    total_duration = to_fcpx_time(sum((s.end - s.start) for s in segments), timescale)
+    media_duration = to_fcpx_time(media.duration, timescale)
+
+    xml = f"""<?xml version=\"1.0\" encoding=\"UTF-8\"?>
+<fcpxml version=\"1.10\">
   <resources>
-    <format id="r1" name="{fps_num/ fps_den:.3f}p" frameDuration="{frame_duration}"/>
-    <asset id="r2" src="{url}" start="0s" duration="{to_fcpx_time(media.duration, timescale)}" format="r1"/>
+    <format id=\"r1\" name=\"VideoFormat\" frameDuration=\"{frame_duration}\"/>
+    <asset id=\"r2\" format=\"r1\" start=\"0s\" duration=\"{media_duration}\" hasVideo=\"1\" hasAudio=\"1\"> 
+      <media-rep src=\"{url}\"/>
+    </asset>
   </resources>
   <library>
-    <event name="Silence Cutter">
-      <project name="{project_name}">
-        <sequence duration="{to_fcpx_time(sum((s.end-s.start) for s in segments), timescale)}" format="r1">
+    <event name=\"Silence Cutter\">
+      <project name=\"{project_name}\">
+        <sequence duration=\"{total_duration}\" format=\"r1\">
           <spine>
             {spine_xml}
           </spine>
@@ -290,6 +291,7 @@ def main():
     ap.add_argument("--merge-gap", type=float, default=0.30, help="Merge gaps smaller than this (seconds)")
     ap.add_argument("--min-keep", type=float, default=0.25, help="Drop kept segments shorter than this (seconds)")
     ap.add_argument("--crossfade-frames", type=int, default=0, help="Optional: add N-frame crossfades (0 = none; note: basic placeholder)")
+    ap.add_argument("--output-dir", type=str, default=None, help="Optional output folder for the FCPXML/JSON")
     ap.add_argument("--json", action="store_true", help="Also write JSON of segments for debugging")
     args = ap.parse_args()
 
@@ -321,9 +323,12 @@ def main():
     speech = snap_to_frames(speech, media.fps_num, media.fps_den)
 
     # Write outputs
-    base = os.path.splitext(ipath)[0]
-    fcpxml_path = base + "_silence_cuts.fcpxml"
-    project_name = os.path.basename(base) + " (Silence Cut)"
+    src_base = os.path.splitext(ipath)[0]
+    base_name = os.path.basename(src_base)
+    out_dir = args.output_dir if args.output_dir else os.path.dirname(src_base)
+    os.makedirs(out_dir, exist_ok=True)
+    fcpxml_path = os.path.join(out_dir, base_name + "_silence_cuts.fcpxml")
+    project_name = base_name + " (Silence Cut)"
 
     xml = generate_fcpxml(
         ipath,
@@ -337,7 +342,8 @@ def main():
 
     if args.json:
         js = [{"start": round(s.start, 6), "end": round(s.end, 6)} for s in speech]
-        with open(base + "_speech_segments.json", "w", encoding="utf-8") as jf:
+        json_path = os.path.join(out_dir, base_name + "_speech_segments.json")
+        with open(json_path, "w", encoding="utf-8") as jf:
             json.dump(js, jf, indent=2)
 
     kept = sum(s.end - s.start for s in speech)

@@ -6,14 +6,6 @@ import tkinter as tk
 from tkinter import filedialog, messagebox
 from pathlib import Path
 
-# Optional drag-and-drop support via tkinterdnd2
-DND_AVAILABLE = False
-try:
-    from tkinterdnd2 import DND_FILES, TkinterDnD
-    DND_AVAILABLE = True
-except Exception:
-    DND_AVAILABLE = False
-
 WORKDIR = Path(__file__).resolve().parent
 CUTTER = WORKDIR / "silence_cutter.py"
 
@@ -26,13 +18,11 @@ DEFAULTS = {
     "crossfade_frames": "0",
 }
 
-BaseTk = TkinterDnD.Tk if DND_AVAILABLE else tk.Tk
-
-class App(BaseTk):
+class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Silence Cutter → FCPXML for Final Cut Pro")
-        self.geometry("640x380")
+        self.geometry("560x320")
         self.resizable(False, False)
 
         self.file_var = tk.StringVar()
@@ -44,20 +34,11 @@ class App(BaseTk):
     def _build(self):
         pad = 8
 
-        # File chooser
+        # File selector (button only, no text field)
         frm_file = tk.Frame(self)
         frm_file.pack(fill="x", padx=pad, pady=(pad, 4))
-        tk.Label(frm_file, text="Video file (.mp4/.mov) — drag & drop here or Browse:").pack(anchor="w")
-
-        entry = tk.Entry(frm_file, textvariable=self.file_var, width=70)
-        entry.pack(side="left", padx=(0,6), pady=(4,0))
-        if DND_AVAILABLE:
-            entry.drop_target_register(DND_FILES)
-            entry.dnd_bind('<<Drop>>', self.on_drop)
-            # Also allow dropping onto the whole window
-            self.drop_target_register(DND_FILES)
-            self.dnd_bind('<<Drop>>', self.on_drop)
-        tk.Button(frm_file, text="Browse…", command=self.choose_file).pack(side="left", pady=(4,0))
+        tk.Button(frm_file, text="Select Video…", command=self.choose_file, width=18).pack(side="left")
+        tk.Label(frm_file, textvariable=self.file_var, anchor="w", fg="#444").pack(side="left", padx=8)
 
         # Params grid
         grid = tk.Frame(self)
@@ -76,55 +57,24 @@ class App(BaseTk):
         row(4, "Min keep (sec):", "min_keep", "e.g. 0.25")
         row(5, "Crossfade (frames):", "crossfade_frames", "0 for hard cuts")
 
+        # Output folder selector
+        outdir = tk.Frame(self)
+        outdir.pack(fill="x", padx=pad, pady=(4, 4))
+        self.outdir_var = tk.StringVar(value="")
+        tk.Button(outdir, text="Select Output Folder…", command=self.choose_output_dir, width=18).pack(side="left")
+        tk.Label(outdir, textvariable=self.outdir_var, anchor="w", fg="#444").pack(side="left", padx=8)
+
         # Actions
         actions = tk.Frame(self)
         actions.pack(fill="x", padx=pad, pady=(8, 4))
-        tk.Button(actions, text="Generate FCPXML", command=self.run_cutter, width=20).pack(side="left")
+        tk.Button(actions, text="Generate FCPXML", command=self.run_cutter, width=18).pack(side="left")
         tk.Button(actions, text="Reveal Output in Finder", command=self.reveal_output).pack(side="left", padx=8)
 
         # Output label
         out = tk.Frame(self)
         out.pack(fill="x", padx=pad, pady=(4, pad))
         tk.Label(out, text="Output:").pack(anchor="w")
-        tk.Entry(out, textvariable=self.output_var, width=90).pack(fill="x")
-
-        if not DND_AVAILABLE:
-            hint = tk.Label(self, fg="#666", text="Tip: For drag & drop, install tkinterdnd2 → pip install tkinterdnd2")
-            hint.pack(pady=(0,8))
-
-    def on_drop(self, event):
-        # event.data may contain one or more paths, possibly wrapped in braces
-        raw = event.data.strip()
-        # Split multiple files if present; tkdnd uses space-separated, brace-wrapped for paths with spaces
-        def parse_tkdnd_list(s: str):
-            out = []
-            cur = ''
-            in_brace = False
-            i = 0
-            while i < len(s):
-                c = s[i]
-                if c == '{':
-                    in_brace = True
-                elif c == '}':
-                    in_brace = False
-                    out.append(cur)
-                    cur = ''
-                elif c == ' ' and not in_brace:
-                    if cur:
-                        out.append(cur)
-                        cur = ''
-                else:
-                    cur += c
-                i += 1
-            if cur:
-                out.append(cur)
-            return out
-        files = parse_tkdnd_list(raw)
-        if not files:
-            return
-        path = files[0]
-        if os.path.isfile(path):
-            self.file_var.set(path)
+        tk.Entry(out, textvariable=self.output_var, width=80).pack(fill="x")
 
     def choose_file(self):
         path = filedialog.askopenfilename(title="Choose video",
@@ -132,10 +82,15 @@ class App(BaseTk):
         if path:
             self.file_var.set(path)
 
+    def choose_output_dir(self):
+        path = filedialog.askdirectory(title="Choose output folder")
+        if path:
+            self.outdir_var.set(path)
+
     def run_cutter(self):
         ipath = self.file_var.get().strip()
         if not ipath:
-            messagebox.showerror("Missing file", "Please choose a video file.")
+            messagebox.showerror("Missing file", "Please select a video file.")
             return
         if not os.path.isfile(ipath):
             messagebox.showerror("Not found", f"File not found:\n{ipath}")
@@ -149,6 +104,9 @@ class App(BaseTk):
                "--min-keep", self.vars["min_keep"].get().strip(),
                "--crossfade-frames", self.vars["crossfade_frames"].get().strip(),
                "--json"]
+        outdir = self.outdir_var.get().strip()
+        if outdir:
+            cmd.extend(["--output-dir", outdir])
         try:
             p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         except Exception as e:
