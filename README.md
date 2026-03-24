@@ -19,8 +19,11 @@ Quick start (CLI)
 Quick start (GUI)
 1) Launch the UI:
    - python3 gui_tk.py
-2) Click “Browse…” to pick a video, adjust settings, then “Generate FCPXML”
+2) Drag a video file into the path field (or click “Browse…”), adjust settings, then “Generate FCPXML”
 3) Click “Reveal Output in Finder”, then import the XML into FCP (File → Import → XML…)
+
+Tip: For drag & drop support, this UI uses tkinterdnd2. If DnD doesn’t work, install it:
+- pip install tkinterdnd2
 
 Tunable parameters
 - --threshold: Silence threshold in dB (default: -35). Raise (e.g., -30) if room tone is getting cut; lower (e.g., -40) if silences aren’t found.

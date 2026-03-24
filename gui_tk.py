@@ -6,6 +6,14 @@ import tkinter as tk
 from tkinter import filedialog, messagebox
 from pathlib import Path
 
+# Optional drag-and-drop support via tkinterdnd2
+DND_AVAILABLE = False
+try:
+    from tkinterdnd2 import DND_FILES, TkinterDnD
+    DND_AVAILABLE = True
+except Exception:
+    DND_AVAILABLE = False
+
 WORKDIR = Path(__file__).resolve().parent
 CUTTER = WORKDIR / "silence_cutter.py"
 
@@ -18,11 +26,13 @@ DEFAULTS = {
     "crossfade_frames": "0",
 }
 
-class App(tk.Tk):
+BaseTk = TkinterDnD.Tk if DND_AVAILABLE else tk.Tk
+
+class App(BaseTk):
     def __init__(self):
         super().__init__()
         self.title("Silence Cutter → FCPXML for Final Cut Pro")
-        self.geometry("620x360")
+        self.geometry("640x380")
         self.resizable(False, False)
 
         self.file_var = tk.StringVar()
@@ -37,16 +47,24 @@ class App(tk.Tk):
         # File chooser
         frm_file = tk.Frame(self)
         frm_file.pack(fill="x", padx=pad, pady=(pad, 4))
-        tk.Label(frm_file, text="Video file (.mp4/.mov):").pack(side="left")
-        tk.Entry(frm_file, textvariable=self.file_var, width=62).pack(side="left", padx=6)
-        tk.Button(frm_file, text="Browse…", command=self.choose_file).pack(side="left")
+        tk.Label(frm_file, text="Video file (.mp4/.mov) — drag & drop here or Browse:").pack(anchor="w")
+
+        entry = tk.Entry(frm_file, textvariable=self.file_var, width=70)
+        entry.pack(side="left", padx=(0,6), pady=(4,0))
+        if DND_AVAILABLE:
+            entry.drop_target_register(DND_FILES)
+            entry.dnd_bind('<<Drop>>', self.on_drop)
+            # Also allow dropping onto the whole window
+            self.drop_target_register(DND_FILES)
+            self.dnd_bind('<<Drop>>', self.on_drop)
+        tk.Button(frm_file, text="Browse…", command=self.choose_file).pack(side="left", pady=(4,0))
 
         # Params grid
         grid = tk.Frame(self)
         grid.pack(fill="x", padx=pad, pady=4)
 
         def row(r, label, key, hint=None):
-            tk.Label(grid, text=label, anchor="w", width=22).grid(row=r, column=0, sticky="w", pady=2)
+            tk.Label(grid, text=label, anchor="w", width=24).grid(row=r, column=0, sticky="w", pady=2)
             tk.Entry(grid, textvariable=self.vars[key], width=12).grid(row=r, column=1, sticky="w")
             if hint:
                 tk.Label(grid, text=hint, fg="#666").grid(row=r, column=2, sticky="w")
@@ -68,7 +86,45 @@ class App(tk.Tk):
         out = tk.Frame(self)
         out.pack(fill="x", padx=pad, pady=(4, pad))
         tk.Label(out, text="Output:").pack(anchor="w")
-        tk.Entry(out, textvariable=self.output_var, width=86).pack(fill="x")
+        tk.Entry(out, textvariable=self.output_var, width=90).pack(fill="x")
+
+        if not DND_AVAILABLE:
+            hint = tk.Label(self, fg="#666", text="Tip: For drag & drop, install tkinterdnd2 → pip install tkinterdnd2")
+            hint.pack(pady=(0,8))
+
+    def on_drop(self, event):
+        # event.data may contain one or more paths, possibly wrapped in braces
+        raw = event.data.strip()
+        # Split multiple files if present; tkdnd uses space-separated, brace-wrapped for paths with spaces
+        def parse_tkdnd_list(s: str):
+            out = []
+            cur = ''
+            in_brace = False
+            i = 0
+            while i < len(s):
+                c = s[i]
+                if c == '{':
+                    in_brace = True
+                elif c == '}':
+                    in_brace = False
+                    out.append(cur)
+                    cur = ''
+                elif c == ' ' and not in_brace:
+                    if cur:
+                        out.append(cur)
+                        cur = ''
+                else:
+                    cur += c
+                i += 1
+            if cur:
+                out.append(cur)
+            return out
+        files = parse_tkdnd_list(raw)
+        if not files:
+            return
+        path = files[0]
+        if os.path.isfile(path):
+            self.file_var.set(path)
 
     def choose_file(self):
         path = filedialog.askopenfilename(title="Choose video",
